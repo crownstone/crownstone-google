@@ -1,16 +1,25 @@
 import { smarthome, SmartHomeV1SyncDevices, SmartHomeV1QueryResponse } from 'actions-on-google';
 import { config } from '../utils/config';
-import { getApi } from '../utils/api';
 import { createLogger } from '../utils/logger';
 import flatten from 'lodash.flattendeep';
-import { CustomData } from '../interface';
+import {getAccessToken} from "../utils/getAccessToken";
+import {CrownstoneCloud} from "crownstone-cloud";
+import {CrownstoneWebhooks} from "crownstone-cloud/dist/CrownstoneWebhooks";
 
 const log = createLogger('google/smarthome');
 
 export const smarthomeApp = smarthome({
-    jwt: config.GOOGLE_SERVICE_KEY,
-    debug: true,
+  jwt: config.GOOGLE_SERVICE_KEY,
+  debug: true,
 });
+
+
+async function registerUser(hooks : CrownstoneWebhooks, accessToken : string, userId: string) {
+  let events = [
+    "dataChange", "switchStateUpdate", "abilityChange"
+  ];
+  await hooks.createListener(userId, accessToken, events, config.SYNC_URL);
+}
 
 /**
  * This method is invoked when we receive a "Discovery" message from a Google Home smart action.
@@ -18,74 +27,82 @@ export const smarthomeApp = smarthome({
  * customer.
  */
 smarthomeApp.onSync(async (body, headers) => {
-    const api = getApi(headers);
+  const accessToken = typeof headers !== 'string' ? getAccessToken(headers) : headers;
+  let cloud = new CrownstoneCloud()
+  let hooks = new CrownstoneWebhooks()
+  cloud.setAccessToken(accessToken);
+  hooks.setApiKey(config.EVENT_SERVER_API_KEY);
+  // REST.setAccessToken(accessToken);
+  // WebhookAPI.setApiKey(config.EVENT_SERVER_API_KEY);
 
-    // fetch the user and their crownstones
-    const user = await api.getUser();
-    const stones = await api.getStones();
-    console.log('fetching user');
-    // add the user to the even server
-    await api.setEventListener(user);
+  // fetch the user and their crownstones
+  const userId = await cloud.me().id()
+  const stones = await cloud.crownstones().data()
+  // add the user to the even server
+  let listenerActive = await hooks.isListenerActive(accessToken);
+  if (listenerActive !== true) {
+    await registerUser(hooks, accessToken, userId);
+  }
 
-    log.info(`stones: ${JSON.stringify(stones)}`);
-    log.info(`user: ${JSON.stringify(user)}`);
-    const devices: SmartHomeV1SyncDevices[] = [];
+  log.info(`stones: ${JSON.stringify(stones)}`);
+  log.info(`userId: ${userId}}`);
+  const devices: SmartHomeV1SyncDevices[] = [];
 
-    for (const stone of stones) {
-        log.info(`stone: ${JSON.stringify(stone)}`);
-        let deviceType = 'action.devices.types.OUTLET';
-        const traits = ['action.devices.traits.OnOff'];
+  stones.forEach((stone) => {
+    log.info(`stone: ${JSON.stringify(stone)}`);
+    let deviceType = 'action.devices.types.OUTLET';
+    const traits = ['action.devices.traits.OnOff'];
 
-        // if this crownstone has dimming enable add the brightness trait
-        const canDim = stone?.abilities?.find(v => v.type === 'dimming');
-        const canTapToToggle = stone?.abilities?.find(v => v.type === 'tapToToggle');
-        const canSwitchcraft = stone?.abilities?.find(v => v.type === 'switchcraft');
+    // if this crownstone has dimming enable add the brightness trait
+    const canDim         = stone?.abilities?.find((v) => v.type === 'dimming');
+    const canTapToToggle = stone?.abilities?.find((v) => v.type === 'tapToToggle');
+    const canSwitchcraft = stone?.abilities?.find((v) => v.type === 'switchcraft');
 
-        if (canDim && canDim.enabled) {
-            traits.push('action.devices.traits.Brightness');
-            // if this stone supports dimming, we know that this is a light
-            deviceType = 'action.devices.types.LIGHT';
-        }
-
-        devices.push({
-            id: stone.id,
-            type: deviceType,
-            traits,
-            name: {
-                defaultNames: [stone.name],
-                name: stone.name,
-                nicknames: [stone.name],
-            },
-            willReportState: true,
-            attributes: {
-                commandOnlyOnOff: true,
-            },
-            deviceInfo: {
-                manufacturer: 'Crownstone',
-                model: stone.type,
-                hwVersion: stone.hardwareVersion,
-                swVersion: stone.firmwareVersion,
-            },
-            // we can use this property to append custom data for a crownstone
-            // we can check if dimming is enabled in Query intent, so we can also send the brightness to google
-            customData: {
-                dimmingEnabled: canDim?.enabled || false,
-                tapToToggle: canTapToToggle?.enabled || false,
-                switchCraft: canSwitchcraft?.enabled || false,
-            } as CustomData,
-        });
+    if (canDim && canDim.enabled) {
+      traits.push('action.devices.traits.Brightness');
+      // if this stone supports dimming, we know that this is a light
+      deviceType = 'action.devices.types.LIGHT';
     }
 
-    const res = {
-        requestId: body.requestId,
-        payload: {
-            agentUserId: user.id,
-            devices,
-        },
-    };
+    devices.push({
+      id: stone.id,
+      type: deviceType,
+      traits,
+      name: {
+        defaultNames: [stone.name],
+        name: stone.name,
+        nicknames: [stone.name],
+      },
+      willReportState: true,
+      attributes: {
+        commandOnlyOnOff: true,
+      },
+      deviceInfo: {
+        manufacturer: 'Crownstone',
+        model: stone.type,
+        hwVersion: stone.hardwareVersion,
+        swVersion: stone.firmwareVersion,
+      },
+      // we can use this property to append custom data for a crownstone
+      // we can check if dimming is enabled in Query intent, so we can also send the brightness to google
+      customData: {
+        dimmingEnabled: canDim?.enabled || false,
+        tapToToggle: canTapToToggle?.enabled || false,
+        switchCraft: canSwitchcraft?.enabled || false,
+      } as CustomData,
+    });
+  });
 
-    log.info(`Response on Sync ${JSON.stringify(res)}`);
-    return res;
+  const res = {
+    requestId: body.requestId,
+    payload: {
+      agentUserId: userId,
+      devices,
+    },
+  };
+
+  log.info(`Response on Sync ${JSON.stringify(res)}`);
+  return res;
 });
 
 /**
@@ -93,101 +110,115 @@ smarthomeApp.onSync(async (body, headers) => {
  * We are expected to execute the intent received and tell google to resync state
  */
 smarthomeApp.onExecute(async (body, headers) => {
-    const api = getApi(headers);
-    const inputs = body.inputs;
+  const accessToken = typeof headers !== 'string' ? getAccessToken(headers) : headers;
+  let cloud = new CrownstoneCloud()
+  let hooks = new CrownstoneWebhooks()
 
-    const user = await api.getUser();
+  cloud.setAccessToken(accessToken);
+  hooks.setApiKey(config.EVENT_SERVER_API_KEY);
 
-    const stones = flatten(inputs.map(v => v.payload).map(v => flatten(v.commands.map(x => x.devices))));
+  const inputs = body.inputs;
 
-    const executions = flatten(inputs.map(v => v.payload).map(v => flatten(v.commands.map(x => x.execution))));
+  const userId = await cloud.me().id();
+  const stones = flatten(inputs.map((v) => v.payload).map((v) => flatten(v.commands.map((x) => x.devices))));
+  const executions = flatten(inputs.map((v) => v.payload).map((v) => flatten(v.commands.map((x) => x.execution))));
 
-    let onState = false;
-    let onBrightness = 0;
+  let onState = false;
+  let onBrightness = 0;
 
-    log.info(`command ${JSON.stringify(executions)}`);
-    for (const execution of executions) {
-        switch (execution.command) {
-            case 'action.devices.commands.OnOff':
-                for (const stone of stones) {
-                    // get current switch state from corwnstone
-                    const data = await api.getSwitchState(stone.id);
-                    onState = execution.params.on;
-                    onBrightness = data.switchState;
+  log.info(`command ${JSON.stringify(executions)}`);
+  for (const execution of executions) {
+    switch (execution.command) {
+      case 'action.devices.commands.OnOff':
+        for (const stone of stones) {
+          try {
+            // get current switch state from corwnstone
+            let crownstone = cloud.crownstoneById(stone.id);
 
-                    // send switch state to the crownstone
-                    await api.setSwitchState(stone.id, execution.params.on ? 1 : 0);
+            const data = await crownstone.currentSwitchState()
+            onState = execution.params.on;
+            onBrightness = data;
 
-                    // create new state for the crownstone
-                    const newState = {
-                        agentUserId: user.id,
-                        requestId: body.requestId,
-                        payload: {
-                            devices: {
-                                states: {
-                                    [stone.id]: {
-                                        on: onState,
-                                        brightness: onBrightness,
-                                        online: true,
-                                    },
-                                },
-                            },
-                        },
-                    };
-                    log.info(`new state ${JSON.stringify(newState)}`);
-                    // reporting the new state of a device is required by Google.
-                    await smarthomeApp.reportState(newState);
-                }
-                break;
-            case 'action.devices.commands.BrightnessAbsolute':
-                for (const stone of stones) {
-                    // if dimming is not enabled for this crownstone skip this loop iteration
-                    if (!(stone.customData as CustomData).dimmingEnabled) continue;
-                    onBrightness = execution.params.brightness;
-                    onState = onBrightness > 0;
-                    await api.setBrightness(stone.id, onBrightness);
-                    const newState = {
-                        agentUserId: user.id,
-                        requestId: body.requestId,
-                        payload: {
-                            devices: {
-                                states: {
-                                    [stone.id]: {
-                                        on: onState,
-                                        brightness: onBrightness,
-                                        online: true,
-                                    },
-                                },
-                            },
-                        },
-                    };
-                    log.info(`new state ${JSON.stringify(newState)}`);
-                    // reporting the new state of a device is required by Google.
-                    await smarthomeApp.reportState(newState);
-                }
-                break;
+            // send switch state to the crownstone
+            await crownstone.setSwitch(execution.params.on ? 1 : 0);
+
+            // create new state for the crownstone
+            const newState = {
+              agentUserId: userId,
+              requestId: body.requestId,
+              payload: {
+                devices: {
+                  states: {
+                    [stone.id]: {
+                      on: onState,
+                      brightness: onBrightness,
+                      online: true,
+                    },
+                  },
+                },
+              },
+            };
+            log.info(`new state ${JSON.stringify(newState)}`);
+            // reporting the new state of a device is required by Google.
+            await smarthomeApp.reportState(newState);
+          }
+          catch(e) {
+            // Crownstone deleted?
+            log.info("WARNING: error during switch request", e);
+          }
         }
+        break;
+      case 'action.devices.commands.BrightnessAbsolute':
+        for (const stone of stones) {
+          // if dimming is not enabled for this crownstone skip this loop iteration
+          if (!(stone.customData as CustomData).dimmingEnabled) continue;
+          let crownstone = cloud.crownstoneById(stone.id);
+
+          onBrightness = execution.params.brightness;
+          onState = onBrightness > 0;
+          await crownstone.setSwitch(onBrightness / 100);
+          const newState = {
+            agentUserId: userId,
+            requestId: body.requestId,
+            payload: {
+              devices: {
+                states: {
+                  [stone.id]: {
+                    on: onState,
+                    brightness: onBrightness,
+                    online: true,
+                  },
+                },
+              },
+            },
+          };
+          log.info(`new state ${JSON.stringify(newState)}`);
+          // reporting the new state of a device is required by Google.
+          await smarthomeApp.reportState(newState);
+        }
+        break;
     }
+  }
 
-    const command = {
-        ids: stones.map(v => v.id),
-        status: 'SUCCESS' as 'SUCCESS',
-        states: {
-            on: onState,
-            brightness: onBrightness,
-            online: true,
-        },
-    };
+  const command = {
+    ids: stones.map((v) => v.id),
+    status: 'SUCCESS' as 'SUCCESS',
+    states: {
+      on: onState,
+      brightness: onBrightness,
+      online: true,
+    },
+  };
 
-    const res = {
-        requestId: body.requestId,
-        payload: {
-            commands: [command],
-        },
-    };
+  const res = {
+    requestId: body.requestId,
+    payload: {
+      commands: [command],
+    },
+  };
 
-    log.info(`Response on Execute ${JSON.stringify(res)}`);
-    return res;
+  log.info(`Response on Execute ${JSON.stringify(res)}`);
+  return res;
 });
 
 /**
@@ -195,34 +226,41 @@ smarthomeApp.onExecute(async (body, headers) => {
  * We are expected to return a list of appliances and the appliance status
  */
 smarthomeApp.onQuery(async (body, headers) => {
-    const api = getApi(headers);
+  const accessToken = typeof headers !== 'string' ? getAccessToken(headers) : headers;
+  let cloud = new CrownstoneCloud()
+  cloud.setAccessToken(accessToken);
 
-    const res: SmartHomeV1QueryResponse = {
-        requestId: body.requestId,
-        payload: {
-            devices: {},
-        },
-    };
+  const queryResult: SmartHomeV1QueryResponse = {
+    requestId: body.requestId,
+    payload: {
+      devices: {},
+    },
+  };
 
-    const devices = flatten(body.inputs.map(v => v.payload.devices));
+  const devices = flatten(body.inputs.map((v) => v.payload.devices));
 
-    const ids = devices.map(v => ({ id: v.id, customData: v.customData as CustomData }));
+  const ids = devices.map((v) => ({ id: v.id, customData: v.customData as CustomData }));
 
-    // get the status for each crownstone
-    const promises = ids.map(value =>
-        api.getSwitchState(value.id).then(data => {
-            const state = {
-                on: data.switchState !== 0,
-                ...(value.customData.dimmingEnabled ? { brightness: data.switchState * 100 } : {}),
-            };
-            res.payload.devices[value.id] = state;
-        }),
-    );
+  // get the status for each crownstone
+  const promises = ids.map((deviceItem) => {
+    let crownstone = cloud.crownstoneById(deviceItem.id);
+    return crownstone.currentSwitchState()
+      .then((switchState) => {
+        const state = {
+          on: switchState !== 0,
+          ...(deviceItem.customData.dimmingEnabled ? {brightness: switchState * 100} : {}),
+        };
+        queryResult.payload.devices[deviceItem.id] = state;
+      })
+      .catch((e) => {
+        log.info("WARNING: error during switch request", e);
+      })
+  });
 
-    await Promise.all(promises);
+  await Promise.all(promises);
 
-    log.info(`Response on Query ${JSON.stringify(res)}`);
-    return res;
+  log.info(`Response on Query ${JSON.stringify(queryResult)}`);
+  return queryResult;
 });
 
 /**
@@ -230,9 +268,10 @@ smarthomeApp.onQuery(async (body, headers) => {
  * We are expected to stop reporting the crownstone state of this users devices to Google.
  */
 smarthomeApp.onDisconnect(async (body, headers) => {
-    const api = getApi(headers);
-    const user = await api.getUser();
+  const accessToken = typeof headers !== 'string' ? getAccessToken(headers) : headers;
+  let hooks = new CrownstoneWebhooks()
+  hooks.setApiKey(config.EVENT_SERVER_API_KEY);
 
-    // remove user from event server listener
-    await api.removeEventListener(user);
+  // remove user from event server listener
+  await hooks.removeListener(accessToken);
 });

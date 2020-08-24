@@ -4,10 +4,10 @@
     "main": "index.js",
     "license": "MIT",
     "scripts": {
+        "start": "tsc --watch",
         "build": "tsc",
-        "prebuild": "npm run lint && rimraf function.zip",
-        "postbuild": "zip -r function.zip . -x 'src/*' -x '.*' -x 'assets/*'",
-        "lint": "tsc --noEmit && eslint \"./src/**/*.ts\" --quiet --fix"
+        "prebuild": "rimraf function.zip",
+        "postbuild": "npm prune --production && zip -r function.zip . -x 'src/*' -x '.*' -x 'assets/*' -x 'docs/*' && yarn install --check-files"
     },
     "devDependencies": {
         "@types/aws-lambda": "^8.10.59",
@@ -28,6 +28,7 @@
         "actions-on-google": "^2.12.0",
         "ask-sdk-core": "^2.8.0",
         "ask-sdk-model": "^1.28.1",
+        "crownstone-cloud": "^0.9.0",
         "got": "^11.5.1",
         "i18next": "^19.6.2",
         "lodash.flattendeep": "^4.4.0",

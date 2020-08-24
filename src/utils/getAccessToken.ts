@@ -5,17 +5,17 @@ import { Headers } from 'actions-on-google';
  * the Crownstone servers.
  */
 export const getAccessToken = (headers: Headers) => {
-    const authHeader = (headers['authorization'] || headers['Authorization']) as string | undefined;
+  const authHeader = (headers['authorization'] || headers['Authorization']) as string | undefined;
 
-    if (!authHeader) {
-        throw new Error('authorization header not provided');
-    }
+  if (!authHeader) {
+    throw new Error('authorization header not provided');
+  }
 
-    const header = authHeader.split(' ');
+  const header = authHeader.split(' ');
 
-    if (header[0] !== 'Bearer') {
-        throw new Error('Incorrect header, expected bearer authentication');
-    }
+  if (header[0] !== 'Bearer') {
+    throw new Error('Incorrect header, expected bearer authentication');
+  }
 
-    return header.pop() as string;
+  return header.pop() as string;
 };
