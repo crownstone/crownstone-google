@@ -6,8 +6,8 @@
     "scripts": {
         "start": "tsc --watch",
         "build": "tsc",
-        "prebuild": "rimraf function.zip",
-        "postbuild": "npm prune --production && zip -r function.zip . -x 'src/*' -x '.*' -x 'assets/*' -x 'docs/*' && yarn install --check-files"
+        "prebuild": "rimraf function.zip && rimraf dist && rimraf function",
+        "postbuild": "npm prune --production && zip -r function.zip . -x 'src/*' -x '.*' -x 'assets/*' -x 'docs/*' -x 'testServer/*' && yarn install --check-files"
     },
     "devDependencies": {
         "@types/aws-lambda": "^8.10.59",
@@ -28,7 +28,7 @@
         "actions-on-google": "^2.12.0",
         "ask-sdk-core": "^2.8.0",
         "ask-sdk-model": "^1.28.1",
-        "crownstone-cloud": "^0.9.0",
+        "crownstone-cloud": "^0.10.0",
         "got": "^11.5.1",
         "i18next": "^19.6.2",
         "lodash.flattendeep": "^4.4.0",

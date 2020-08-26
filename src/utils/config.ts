@@ -15,7 +15,6 @@ try {
 export const config = {
   GOOGLE_SERVICE_KEY: jwt as SmartHomeJwt,
 
-  EVENT_SERVER_URL:      process.env.EVENT_SERVER_URL,
   SSE_EVENT_USER_SECRET: process.env.SSE_EVENT_USER_SECRET,
   EVENT_SERVER_API_KEY:  process.env.EVENT_SERVER_API_KEY,
 

@@ -12,7 +12,7 @@ export const googleSmartHome = async (event: APIGatewayEvent, ctx: Context) => {
 
   if (event.path.includes('smarthome')) {
     const body = JSON.parse(event.body || '{}');
-    payload = await smarthome.smarthomeApp.handler(body, event.headers);
+    payload = await smarthome.smarthomeApp.handler(body, event.headers)
   }
   else {
     log.error(new Error(`No handler found for path ${event.path}`));

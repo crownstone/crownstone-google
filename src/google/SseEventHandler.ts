@@ -1,14 +1,9 @@
 import { smarthome, SmartHomeV1ReportStateRequest } from 'actions-on-google';
-import {config} from "../utils/config";
+import {smarthomeApp} from "./smarthome";
 
-const smarthomeApp = smarthome({
-  jwt: config.GOOGLE_SERVICE_KEY,
-  debug: true,
-});
 
 export async function handleSseInvocation(userId : string, sseEvent: SseDataEvent) {
   // for now we only handle the update event
-  console.log({ sseEvent, userId });
   if (canTriggerReportState(sseEvent)) {
     console.log(`reporting new state for user ${userId} and device ${sseEvent.crownstone.id}`);
     try {
@@ -28,7 +23,6 @@ export async function handleSseInvocation(userId : string, sseEvent: SseDataEven
 
 export const reportState = (userId: string, event: SwitchStateUpdateEvent) => {
   const stone = event.crownstone;
-  console.log(event);
   const newState: SmartHomeV1ReportStateRequest = {
     agentUserId: userId,
     requestId: Math.random().toString(),
@@ -44,8 +38,6 @@ export const reportState = (userId: string, event: SwitchStateUpdateEvent) => {
       },
     },
   };
-  console.log(`new state`);
-  console.log(newState.payload.devices);
   return smarthomeApp.reportState(newState);
 };
 

@@ -35,10 +35,9 @@ const isApiGateWayEvent = (event: Mappable): event is APIGatewayEvent => {
  * @param context
  */
 export const handler = async function ( event: APIGatewayEvent, context: any ) {
-
   // Unlike the Alexa smart home and custom event, Api gateway sends a different type of event.
   // With this we can determine if this request is sent by Google, by checking the url path.
-  if (isApiGateWayEvent(event) && ['/smarthome', '/dialogflow'].includes(event.path)) {
+  if (isApiGateWayEvent(event) && ['/smarthome'].includes(event.path)) {
     return await googleSmartHome(event, context);
   }
   else if (isApiGateWayEvent(event) && ['/google-sync'].includes(event.path)) {
@@ -47,7 +46,6 @@ export const handler = async function ( event: APIGatewayEvent, context: any ) {
       return await handleSseInvocation(body.userId, body.data);
     }
   }
-
 
   return {
     statusCode: 404,

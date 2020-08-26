@@ -3,8 +3,7 @@ import { config } from '../utils/config';
 import { createLogger } from '../utils/logger';
 import flatten from 'lodash.flattendeep';
 import {getAccessToken} from "../utils/getAccessToken";
-import {CrownstoneCloud} from "crownstone-cloud";
-import {CrownstoneWebhooks} from "crownstone-cloud/dist/CrownstoneWebhooks";
+import {CrownstoneCloud, CrownstoneWebhooks} from "crownstone-cloud";
 
 const log = createLogger('google/smarthome');
 
@@ -21,6 +20,18 @@ async function registerUser(hooks : CrownstoneWebhooks, accessToken : string, us
   await hooks.createListener(userId, accessToken, events, config.SYNC_URL);
 }
 
+async function verifyUserSubscription(hooks : CrownstoneWebhooks, accessToken: string, userId: string) {
+  let listenerActive = await hooks.isListenerActiveByToken(accessToken);
+  if (listenerActive !== true) {
+    // the user might have gotten a new token but the old one has not expired.
+    if (await hooks.isListenerActiveByUserId(userId)) {
+      // ensure cleanup
+      await hooks.removeListenerByUserId(userId);
+    }
+    await registerUser(hooks, accessToken, userId);
+  }
+}
+
 /**
  * This method is invoked when we receive a "Discovery" message from a Google Home smart action.
  * We are expected to respond back with a list of appliances that we have discovered for a given
@@ -34,22 +45,19 @@ smarthomeApp.onSync(async (body, headers) => {
   hooks.setApiKey(config.EVENT_SERVER_API_KEY);
   // REST.setAccessToken(accessToken);
   // WebhookAPI.setApiKey(config.EVENT_SERVER_API_KEY);
-
   // fetch the user and their crownstones
   const userId = await cloud.me().id()
+  console.log('userid', userId)
   const stones = await cloud.crownstones().data()
+  console.log('stones', stones)
   // add the user to the even server
-  let listenerActive = await hooks.isListenerActive(accessToken);
-  if (listenerActive !== true) {
-    await registerUser(hooks, accessToken, userId);
-  }
+  await verifyUserSubscription(hooks, accessToken, userId);
 
   log.info(`stones: ${JSON.stringify(stones)}`);
   log.info(`userId: ${userId}}`);
   const devices: SmartHomeV1SyncDevices[] = [];
 
   stones.forEach((stone) => {
-    log.info(`stone: ${JSON.stringify(stone)}`);
     let deviceType = 'action.devices.types.OUTLET';
     const traits = ['action.devices.traits.OnOff'];
 
@@ -117,9 +125,11 @@ smarthomeApp.onExecute(async (body, headers) => {
   cloud.setAccessToken(accessToken);
   hooks.setApiKey(config.EVENT_SERVER_API_KEY);
 
-  const inputs = body.inputs;
-
   const userId = await cloud.me().id();
+  await verifyUserSubscription(hooks, accessToken, userId);
+
+
+  const inputs = body.inputs;
   const stones = flatten(inputs.map((v) => v.payload).map((v) => flatten(v.commands.map((x) => x.devices))));
   const executions = flatten(inputs.map((v) => v.payload).map((v) => flatten(v.commands.map((x) => x.execution))));
 
@@ -269,9 +279,11 @@ smarthomeApp.onQuery(async (body, headers) => {
  */
 smarthomeApp.onDisconnect(async (body, headers) => {
   const accessToken = typeof headers !== 'string' ? getAccessToken(headers) : headers;
+  let cloud = new CrownstoneCloud()
   let hooks = new CrownstoneWebhooks()
+  cloud.setAccessToken(accessToken);
   hooks.setApiKey(config.EVENT_SERVER_API_KEY);
 
-  // remove user from event server listener
-  await hooks.removeListener(accessToken);
+  const userId = await cloud.me().id()
+  await hooks.removeListenerByUserId(userId);
 });
