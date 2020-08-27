@@ -1,5 +1,10 @@
 import { smarthome, SmartHomeV1ReportStateRequest } from 'actions-on-google';
-import {smarthomeApp} from "./smarthome";
+import {config} from "../utils/config";
+
+const smarthomeApp = smarthome({
+  jwt: config.GOOGLE_SERVICE_KEY,
+  debug: true,
+});
 
 
 export async function handleSseInvocation(userId : string, sseEvent: SseDataEvent) {
